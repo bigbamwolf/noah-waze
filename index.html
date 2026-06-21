@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NOAH Routecast — Know Your Hazards + Waze</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root{
+    --noah-navy:#0a2b3a; --noah-navy2:#0e3a4f; --noah-teal:#16b6c4; --noah-teal-d:#0f8d99;
+    --ink:#13242c; --muted:#5c7079; --line:#e3ebee; --bg:#f4f7f8; --card:#ffffff;
+    --low:#ffd43b; --med:#ff922b; --high:#fa5252; --na:#aeb8bd; --clear:#37b24d; --drier:#2f9e44;
+    --shadow:0 2px 14px rgba(10,43,58,.10); --shadow-lg:0 10px 34px rgba(10,43,58,.18);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       color:var(--ink);background:var(--bg);display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  header{background:linear-gradient(135deg,var(--noah-navy),var(--noah-navy2));color:#fff;
+         padding:11px 18px;display:flex;align-items:center;gap:13px;box-shadow:var(--shadow);z-index:1200}
+  .logo{width:38px;height:38px;border-radius:10px;flex:none;
+        background:radial-gradient(circle at 32% 28%,var(--noah-teal),var(--noah-teal-d));
+        display:grid;place-items:center;box-shadow:0 3px 10px rgba(22,182,196,.4)}
+  .logo svg{width:24px;height:24px}
+  .brand h1{margin:0;font-size:17px;font-weight:800;letter-spacing:.3px}
+  .brand p{margin:1px 0 0;font-size:11.5px;color:#9fc4cf;font-weight:500;letter-spacing:.4px}
+  .tagpill{margin-left:auto;font-size:10.5px;font-weight:700;letter-spacing:.5px;color:#bfe7ee;
+           border:1px solid rgba(191,231,238,.35);padding:5px 10px;border-radius:20px;text-transform:uppercase}
+  main{flex:1;display:flex;min-height:0}
+  #map{flex:1;min-width:0;background:#dfe7ea;z-index:1}
+  aside{width:386px;flex:none;background:var(--bg);border-left:1px solid var(--line);
+        overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+  aside>*{flex:0 0 auto}
+  aside::-webkit-scrollbar{width:9px}aside::-webkit-scrollbar-thumb{background:#cfdade;border-radius:6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+  .card.pad{padding:14px}
+  .ttl{font-size:11px;font-weight:800;letter-spacing:1px;color:var(--noah-teal-d);text-transform:uppercase;margin:0 0 10px}
+  .ttl .tag{margin-left:6px}
+
+  /* route switcher */
+  .rsw{display:flex;flex-direction:column;gap:9px}
+  .ropt{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1.5px solid var(--line);border-radius:12px;cursor:pointer;background:#fff;transition:.15s}
+  .ropt:hover{border-color:#bfe0e6}
+  .ropt.on{border-color:var(--noah-teal);background:#f1fbfc;box-shadow:0 0 0 3px rgba(22,182,196,.12)}
+  .ropt .sw{width:15px;height:15px;border-radius:50%;border:3px solid var(--line);flex:none}
+  .ropt.on .sw{border-color:var(--noah-teal);background:var(--noah-teal);box-shadow:inset 0 0 0 2px #fff}
+  .ropt .ri{flex:1;min-width:0}
+  .ropt .rl{font-size:14px;font-weight:700}
+  .ropt .rs{font-size:11.5px;color:var(--muted);margin-top:1px}
+  .ropt .rm{text-align:right;flex:none}
+  .ropt .rd{font-size:13.5px;font-weight:800;white-space:nowrap}
+  .ropt .rr{font-size:10px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;margin-top:2px}
+  .tag{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.5px;color:#0f8d99;background:#d7f3f6;padding:2px 7px;border-radius:6px;text-transform:uppercase}
+  .rleg{display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:3px;padding-left:2px}
+  .rleg i{display:inline-block;width:16px;height:5px;border-radius:3px;margin-right:6px;vertical-align:2px}
+
+  /* od list */
+  .od{position:relative;padding-left:24px}
+  .od .dot{position:absolute;left:3px;top:4px;width:12px;height:12px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 2px var(--clear)}
+  .od .dot.end{box-shadow:0 0 0 2px var(--high);border-radius:3px}
+  .od .line{position:absolute;left:8px;top:16px;bottom:18px;width:2px;background:repeating-linear-gradient(var(--line) 0 4px,transparent 4px 8px)}
+  .od .row+ .row{margin-top:14px}
+  .od .nm{font-size:14px;font-weight:700}
+  .od .ad{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.35}
+
+  /* waze buttons */
+  .btns{display:flex;flex-direction:column;gap:9px}
+  .btn{display:flex;align-items:center;justify-content:center;gap:9px;border:none;cursor:pointer;
+       font-size:14px;font-weight:700;padding:13px;border-radius:12px;text-decoration:none;transition:.15s;width:100%}
+  .btn.waze{background:linear-gradient(135deg,#33ccff,#0aa9e6);color:#04222e;box-shadow:0 4px 14px rgba(10,169,230,.4)}
+  .btn.waze:hover{transform:translateY(-1px);box-shadow:0 7px 20px rgba(10,169,230,.5)}
+  .btn.ghost{background:#fff;color:var(--noah-navy);border:1.5px solid var(--line)}
+  .btn.ghost:hover{border-color:var(--noah-teal);color:var(--noah-teal-d)}
+  .btn svg{width:19px;height:19px;flex:none}
+  .cap{font-size:10.5px;color:var(--muted);line-height:1.45;text-align:center;padding:0 4px}
+
+  /* hazard chips */
+  .haz{display:flex;flex-direction:column;gap:9px}
+  .hz{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px;background:#fafcfc;border:1px solid var(--line)}
+  .hz .ic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex:none;color:#fff}
+  .hz .ic svg{width:19px;height:19px}
+  .hz .mid{flex:1;min-width:0}
+  .hz .nm{font-size:13.5px;font-weight:700}
+  .hz .sub{font-size:11px;color:var(--muted);margin-top:1px}
+  .lvl{font-size:11px;font-weight:800;letter-spacing:.5px;padding:5px 10px;border-radius:20px;text-transform:uppercase;color:#3a2c05;white-space:nowrap}
+  .lvl.low{background:var(--low)}.lvl.med{background:var(--med);color:#fff}
+  .lvl.high{background:var(--high);color:#fff}.lvl.na{background:var(--na);color:#fff}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);padding-top:2px}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+  /* directions */
+  .dirs{list-style:none;margin:0;padding:0;max-height:260px;overflow-y:auto}
+  .dirs::-webkit-scrollbar{width:7px}.dirs::-webkit-scrollbar-thumb{background:#dbe4e7;border-radius:6px}
+  .dirs li{display:flex;gap:11px;padding:9px 0;border-top:1px solid var(--line);align-items:flex-start}
+  .dirs li:first-child{border-top:none}
+  .dirs .mi{width:25px;height:25px;border-radius:8px;background:#eef6f7;color:var(--noah-teal-d);
+            display:grid;place-items:center;flex:none;font-weight:800;font-size:13px}
+  .dirs .mi.flood{background:#ffe9d4;color:#c2640f}
+  .dirs .dt{flex:1;font-size:13px;line-height:1.35}
+  .dirs .dt b{font-weight:700}
+  .dirs .dd{font-size:11px;color:var(--muted);margin-top:2px}
+
+  .fac{list-style:none;margin:0;padding:0}
+  .fac li{display:flex;gap:9px;padding:8px 0;border-top:1px dashed var(--line);font-size:12.5px;align-items:center}
+  .fac li:first-child{border-top:none}
+  .fac .ft{font-size:10px;font-weight:800;padding:3px 7px;border-radius:6px;background:#eef6f7;color:var(--noah-teal-d);flex:none}
+
+  .tips{margin:0;padding-left:18px;font-size:12.5px;color:#3a4a51;line-height:1.5}
+  .tips li{margin:5px 0}
+  .note{font-size:11px;color:var(--muted);line-height:1.5;background:#fff6e9;border:1px solid #ffe2bd;border-radius:10px;padding:10px 12px}
+  .note a{color:var(--noah-teal-d);font-weight:600}
+  footer{font-size:10.5px;color:#90a2a9;text-align:center;padding:4px 0 2px;line-height:1.5}
+  footer a{color:var(--noah-teal-d);text-decoration:none}
+
+  .leaflet-popup-content{margin:11px 13px;font-size:13px}
+  .pp b{font-size:13.5px}.pp span{color:#5c7079;font-size:12px}
+  .ctrl{position:absolute;z-index:1000;top:12px;left:12px;display:flex;gap:7px;background:#fff;
+        padding:6px;border-radius:11px;box-shadow:var(--shadow-lg)}
+  .ctrl button{border:none;background:#f1f5f6;color:var(--ink);font-size:12px;font-weight:700;
+               padding:8px 12px;border-radius:8px;cursor:pointer}
+  .ctrl button.on{background:var(--noah-teal);color:#fff}
+  @media(max-width:880px){ main{flex-direction:column}aside{width:100%;max-height:52%}#map{min-height:280px} }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M2 17c1.5 1.2 3 1.2 4.5 0S9.5 15.8 11 17s3 1.2 4.5 0S18.5 15.8 20 17" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M4 13.5l3.2-7.2a2 2 0 0 1 1.8-1.2h6a2 2 0 0 1 1.8 1.2L20 13.5" stroke="#04323a" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 5V13" stroke="#04323a" stroke-width="1.6"/></svg>
+  </div>
+  <div class="brand">
+    <h1>NOAH Routecast</h1>
+    <p>KNOW YOUR HAZARDS &nbsp;&middot;&nbsp; WAZE ROUTE OVERLAY</p>
+  </div>
+  <span class="tagpill">Mandaluyong &rarr; San Juan</span>
+</header>
+
+<main>
+  <div id="map">
+    <div class="ctrl">
+      <button id="tHazard" class="on">Hazard overlay</button>
+      <button id="tFit">Recenter</button>
+    </div>
+  </div>
+
+  <aside>
+    <!-- route switcher -->
+    <div class="card pad">
+      <p class="ttl">Choose your route</p>
+      <div class="rsw" id="rsw"></div>
+      <div class="rleg">
+        <span><i style="background:var(--drier)"></i>Drier line</span>
+        <span><i style="background:var(--med)"></i>Flood-prone stretch</span>
+        <span><i style="background:#9fb0b7"></i>Other option</span>
+      </div>
+    </div>
+
+    <!-- origin / destination -->
+    <div class="card pad">
+      <div class="od">
+        <span class="dot"></span><span class="line"></span><span class="dot end" style="top:auto;bottom:0"></span>
+        <div class="row"><div class="nm">Princeville Condominium</div>
+          <div class="ad">482 S. Laurel St, Brgy. Pleasant Hills, Mandaluyong City</div></div>
+        <div class="row"><div class="nm">Dominican College</div>
+          <div class="ad">179 F. Blumentritt St, Brgy. Tibagan, San Juan City</div></div>
+      </div>
+    </div>
+
+    <!-- waze -->
+    <div class="btns">
+      <a class="btn waze" id="wazeFull" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="11" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.3"/><circle cx="15" cy="10" r="1.3"/><path d="M8.5 14c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M7 19l-1.5 2M17 19l1.5 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Open full route in Waze
+      </a>
+      <a class="btn ghost" id="wazeNow" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
+        Navigate now from my location
+      </a>
+      <div class="cap" id="wazeCap"></div>
+    </div>
+
+    <!-- hazards -->
+    <div class="card pad">
+      <p class="ttl">Hazard assessment <span class="tag">100-yr</span></p>
+      <div class="haz">
+        <div class="hz">
+          <div class="ic" style="background:var(--med)"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M3 16c1.3 1 2.7 1 4 0s2.7-1 4 0 2.7 1 4 0 2.7-1 4 0"/><path d="M3 20c1.3 1 2.7 1 4 0s2.7-1 4 0 2.7 1 4 0 2.7-1 4 0"/><path d="M12 3v6M8 6l4-3 4 3"/></svg></div>
+          <div class="mid"><div class="nm">Flood</div><div class="sub">San Juan River basin corridor</div></div>
+          <span class="lvl med">Medium</span>
+        </div>
+        <div class="hz">
+          <div class="ic" style="background:var(--low)"><svg viewBox="0 0 24 24" fill="none" stroke="#3a2c05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18L14 6l-4 7-3-3-4 10z"/></svg></div>
+          <div class="mid"><div class="nm">Landslide / Rain-induced</div><div class="sub">Flat urban terrain</div></div>
+          <span class="lvl low">Low</span>
+        </div>
+        <div class="hz">
+          <div class="ic" style="background:var(--na)"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M2 18c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M5 13c0-3 3-5 7-5s7 2 7 5"/></svg></div>
+          <div class="mid"><div class="nm">Storm surge</div><div class="sub">~9 km inland from Manila Bay</div></div>
+          <span class="lvl na">None</span>
+        </div>
+        <div class="hz">
+          <div class="ic" style="background:var(--high)"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2-5 4 10 2-7 2 4h5"/></svg></div>
+          <div class="mid"><div class="nm">Ground shaking (West Valley Fault)</div><div class="sub">Fault trace ~7 km east</div></div>
+          <span class="lvl high">High</span>
+        </div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--low)"></i>Low</span>
+        <span><i style="background:var(--med)"></i>Medium</span>
+        <span><i style="background:var(--high)"></i>High</span>
+        <span><i style="background:var(--na)"></i>N/A</span>
+      </div>
+    </div>
+
+    <!-- directions -->
+    <div class="card pad">
+      <p class="ttl">Turn-by-turn <span class="tag" id="dirTag"></span></p>
+      <ul class="dirs" id="dirs"></ul>
+    </div>
+
+    <!-- facilities -->
+    <div class="card pad">
+      <p class="ttl">Reference facilities near corridor</p>
+      <ul class="fac">
+        <li><span class="ft">HOSP</span> VRP Medical Center &middot; Shaw Blvd</li>
+        <li><span class="ft">HOSP</span> Mandaluyong City Medical Center</li>
+        <li><span class="ft">HOSP</span> San Juan Medical Center &middot; N. Domingo</li>
+        <li><span class="ft">EVAC</span> Brgy. halls along Nueve de Pebrero &amp; Pinaglabanan</li>
+      </ul>
+    </div>
+
+    <!-- tips -->
+    <div class="card pad">
+      <p class="ttl">If heavy rain hits this corridor</p>
+      <ul class="tips">
+        <li>The Addition Hills line (Lee St into A. Mabini) rides the high ground and skirts the basin, the drier call when rain is up.</li>
+        <li>Avoid the Nueve de Pebrero and inner San Juan side streets under a red warning, they pond fast.</li>
+        <li>Never cross knee-deep moving water; 15&nbsp;cm of flow can stall a sedan.</li>
+        <li>Keep a go-bag: water, power bank, IDs, meds, flashlight.</li>
+      </ul>
+    </div>
+
+    <div class="note">
+      Route shading and hazard ratings are <b>indicative</b>, read off the San Juan River basin geography and the Addition Hills elevation, not live NOAH pixel data. Confirm each pin and street on the official
+      <a href="https://noah.up.edu.ph/know-your-hazards" target="_blank" rel="noopener">UP NOAH Know Your Hazards</a> map.
+    </div>
+    <footer>
+      Clone build &middot; map &copy; OpenStreetMap / CARTO &middot; routing OSRM &middot; navigation by Waze<br>
+      Hazard concept &amp; data source: <a href="https://noah.up.edu.ph" target="_blank" rel="noopener">noah.up.edu.ph</a>
+    </footer>
+  </aside>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="route.js"></script>
+<script src="route_alt.js"></script>
+<script>
+(function(){
+  var START={name:'Princeville Condominium',addr:'482 S. Laurel St, Pleasant Hills, Mandaluyong',lat:14.58745,lng:121.04426,pid:'ChIJwREekzDIlzMRzkmZD62r0vw'};
+  var END={name:'Dominican College',addr:'179 F. Blumentritt St, San Juan City',lat:14.59874,lng:121.02976,pid:'ChIJMxuYcdTJlzMRZIXoRfkiAT0'};
+  var FAST=window.ROUTE_DATA, HILLS=window.ROUTE_ALT;
+
+  var ROUTES={
+    hills:{key:'hills',label:'Addition Hills route',sub:'via Lee St &amp; A. Mabini',data:HILLS,
+           riskTxt:'Lower flood',riskColor:'#2f9e44',recommended:true,
+           floodSegs:[[0,0.17,'flood'],[0.17,1,'drier']]},
+    fast:{key:'fast',label:'Fast route',sub:'via Shaw Boulevard',data:FAST,
+           riskTxt:'Moderate',riskColor:'#ff922b',recommended:false,
+           floodSegs:[[0,0.22,'drier'],[0.22,0.74,'flood'],[0.74,1,'drier']]}
+  };
+  var order=['hills','fast'];
+  var active='hills';
+  var SEGCOL={drier:'#2f9e44',flood:'#ff922b'};
+
+  // ---- map ----
+  var map=L.map('map',{zoomControl:true,attributionControl:false}).setView([14.5933,121.0368],15);
+  L.control.attribution({prefix:false,position:'bottomright'}).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    {maxZoom:20,attribution:'&copy; OpenStreetMap, &copy; CARTO'}).addTo(map);
+
+  // ---- indicative flood overlay ----
+  var hazardLayer=L.layerGroup();
+  [[14.5908,121.0378,360],[14.5972,121.0312,300],[14.5862,121.0432,230]].forEach(function(c){
+    L.circle([c[0],c[1]],{radius:c[2],color:'#ff922b',weight:1,fillColor:'#ff922b',fillOpacity:.16}).addTo(hazardLayer);
+  });
+  hazardLayer.addTo(map);
+
+  var routeLayer=L.layerGroup().addTo(map);
+
+  function drawRoute(key){
+    routeLayer.clearLayers();
+    // inactive route first (thin grey dashed)
+    order.forEach(function(k){
+      if(k===key) return;
+      L.polyline(ROUTES[k].data.coords,{color:'#9fb0b7',weight:4,opacity:.7,dashArray:'2,7',lineCap:'round'}).addTo(routeLayer);
+    });
+    // active route: casing + colored flood segments
+    var R=ROUTES[key], pts=R.data.coords, n=pts.length;
+    L.polyline(pts,{color:'#0c2c3a',weight:11,opacity:.18,lineCap:'round'}).addTo(routeLayer);
+    R.floodSegs.forEach(function(s){
+      var a=Math.floor(n*s[0]), b=Math.min(n-1,Math.floor(n*s[1]));
+      L.polyline(pts.slice(a,b+1),{color:SEGCOL[s[2]],weight:7,opacity:.95,lineCap:'round',lineJoin:'round'}).addTo(routeLayer);
+    });
+    // markers
+    L.marker([START.lat,START.lng],{icon:pin('#37b24d','A')}).addTo(routeLayer)
+      .bindPopup('<div class="pp"><b>'+START.name+'</b><br><span>'+START.addr+'</span></div>');
+    L.marker([END.lat,END.lng],{icon:pin('#fa5252','B')}).addTo(routeLayer)
+      .bindPopup('<div class="pp"><b>'+END.name+'</b><br><span>'+END.addr+'</span></div>');
+  }
+  function pin(color,glyph){return L.divIcon({className:'',iconSize:[30,30],iconAnchor:[15,29],popupAnchor:[0,-28],
+    html:'<div style="width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);'
+      +'background:'+color+';border:2.5px solid #fff;box-shadow:0 3px 8px rgba(0,0,0,.35);display:grid;place-items:center">'
+      +'<span style="transform:rotate(45deg);color:#fff;font-weight:800;font-size:13px">'+glyph+'</span></div>'});}
+
+  // ---- switcher UI ----
+  var rsw=document.getElementById('rsw');
+  function km(m){return (m/1000).toFixed(1)+' km';}
+  function mins(s){return Math.max(1,Math.round(s/60))+' min';}
+  order.forEach(function(k){
+    var R=ROUTES[k];
+    var el=document.createElement('div');
+    el.className='ropt'+(k===active?' on':'');
+    el.dataset.key=k;
+    el.innerHTML='<span class="sw"></span><div class="ri"><div class="rl">'+R.label+(R.recommended?' <span class="tag">In rain</span>':'')+'</div>'
+      +'<div class="rs">'+R.sub+'</div></div>'
+      +'<div class="rm"><div class="rd">'+km(R.data.distance)+' &middot; '+mins(R.data.duration)+'</div>'
+      +'<div class="rr" style="color:'+R.riskColor+'">'+R.riskTxt+'</div></div>';
+    el.onclick=function(){ setActive(k); };
+    rsw.appendChild(el);
+  });
+
+  // ---- directions ----
+  var verb={depart:'Head out on',turn:'Turn',continue:'Continue',"new name":'Continue onto','end of road':'At end of road',
+            'merge':'Merge onto','fork':'Keep','roundabout':'Take roundabout','on ramp':'Take ramp','arrive':'Arrive at'};
+  var arrow={left:'&#8592;',right:'&#8594;','slight left':'&#8598;','slight right':'&#8599;','sharp left':'&#8601;','sharp right':'&#8600;',straight:'&#8593;',uturn:'&#8634;'};
+  var floodStreets=['Shaw Boulevard','Nueve de Pebrero Street'];
+  function renderDirs(key){
+    var R=ROUTES[key], ul=document.getElementById('dirs'); ul.innerHTML='';
+    (R.data.steps||[]).forEach(function(s){
+      var li=document.createElement('li');
+      var mod=(s.modifier||'').trim();
+      var ic=arrow[mod]||(s.type==='depart'?'&#9679;':s.type==='arrive'?'&#9873;':'&#8593;');
+      var road=s.name||(s.type==='arrive'?END.name:'the road');
+      var txt;
+      if(s.type==='depart') txt='<b>Head out</b> on '+road;
+      else if(s.type==='arrive') txt='<b>Arrive</b> at '+END.name;
+      else if(s.type==='new name') txt='<b>Continue</b> onto '+road;
+      else txt='<b>'+(verb[s.type]||'Continue')+(mod?' '+mod:'')+'</b> onto '+road;
+      var dd=s.distance?('<div class="dd">'+(s.distance>=1000?(s.distance/1000).toFixed(1)+' km':s.distance+' m')+'</div>'):'';
+      var flood=floodStreets.indexOf(s.name)>=0 && key==='fast';
+      li.innerHTML='<div class="mi'+(flood?' flood':'')+'">'+ic+'</div><div class="dt">'+txt+dd+'</div>';
+      ul.appendChild(li);
+    });
+  }
+
+  function setActive(key){
+    active=key;
+    Array.prototype.forEach.call(rsw.children,function(el){ el.classList.toggle('on', el.dataset.key===key); });
+    drawRoute(key);
+    renderDirs(key);
+    document.getElementById('dirTag').textContent=ROUTES[key].label.replace(' route','');
+    var b=L.latLngBounds(ROUTES[key].data.coords).pad(0.18); map.fitBounds(b);
+    window._curBounds=b;
+  }
+
+  // ---- waze ----
+  document.getElementById('wazeFull').href='https://www.waze.com/live-map/directions?to=place.'+END.pid+'&from=place.'+START.pid+'&navigate=yes';
+  document.getElementById('wazeNow').href='https://waze.com/ul?ll='+END.lat+'%2C'+END.lng+'&navigate=yes';
+  document.getElementById('wazeCap').innerHTML='Waze picks its own fastest line (usually Shaw). To force the Addition Hills route, add <b>A. Mabini St</b> as a stop in the app.';
+
+  // ---- controls ----
+  var th=document.getElementById('tHazard');
+  th.onclick=function(){ if(map.hasLayer(hazardLayer)){map.removeLayer(hazardLayer);th.classList.remove('on');}
+                         else{map.addLayer(hazardLayer);th.classList.add('on');} };
+  document.getElementById('tFit').onclick=function(){ if(window._curBounds) map.fitBounds(window._curBounds); };
+
+  setActive('hills');
+})();
+</script>
+</body>
+</html>
